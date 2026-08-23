@@ -13,7 +13,6 @@ Pipeline of ideas:
 import numpy as np
 import pandas as pd
 from joblib import dump
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import roc_auc_score, brier_score_loss
@@ -21,22 +20,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 import features as F
-
-
-class QuantileClipper(BaseEstimator, TransformerMixin):
-    """Winsorize each column to the [low, high] quantiles learned on train."""
-    def __init__(self, low=0.01, high=0.99):
-        self.low, self.high = low, high
-
-    def fit(self, X, y=None):
-        X = np.asarray(X, dtype=float)
-        self.lo_ = np.nanquantile(X, self.low, axis=0)
-        self.hi_ = np.nanquantile(X, self.high, axis=0)
-        return self
-
-    def transform(self, X):
-        X = np.asarray(X, dtype=float)
-        return np.clip(X, self.lo_, self.hi_)
+from features import QuantileClipper  # shared, so the saved model re-loads anywhere
 
 
 def gini(y, p):

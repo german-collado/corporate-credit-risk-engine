@@ -14,6 +14,28 @@ Target definition (Option 2 — "credit-clean"):
 """
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+
+
+class QuantileClipper(BaseEstimator, TransformerMixin):
+    """Winsorize each column to the [low, high] quantiles learned on train.
+
+    Lives here (a shared module) so a saved pipeline can be re-loaded from any
+    script without a pickle 'can't find class' error.
+    """
+    def __init__(self, low=0.01, high=0.99):
+        self.low, self.high = low, high
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=float)
+        self.lo_ = np.nanquantile(X, self.low, axis=0)
+        self.hi_ = np.nanquantile(X, self.high, axis=0)
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=float)
+        return np.clip(X, self.lo_, self.hi_)
+
 
 # --- Verified column dictionary (confirmed via accounting identities) ---
 COLUMN_MAP = {
