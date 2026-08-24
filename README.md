@@ -69,14 +69,6 @@ fundamentals ──► PD model ──► letter rating ──► ECL = PD × LG
 - **Calibration:** when the model says 5%, ≈ 6% actually default — the PDs are believable, which is what ECL needs.
 - **Stress:** on a 500-loan, $500M book, expected loss runs **~$4.8M in a normal year and ~$12M in a severe recession** (2.5×).
 
-## What makes it defensible (not a Kaggle notebook)
-
-- **Verified data dictionary.** The raw columns arrive anonymized (`X1…X18`); their meaning was recovered and **confirmed against accounting identities** (`EBITDA = EBIT + D&A` holds in 100% of rows) before any modeling.
-- **Honest target.** A firm-year is labeled *default* only in the last 2 years before the filing — the financials shortly before failure — so the model never trains on a doomed company's healthy years.
-- **Out-of-time validation.** Train on 1999–2011, test on 2015–2018, because a credit model must work on the future.
-- **Interpretability first.** Logistic regression with multicollinearity removed via **VIF**, so every coefficient carries an economically sensible sign — you can justify each one to a regulator.
-- **Right metrics.** AUC and calibration, never accuracy — defaults are a ~1.6% rare event.
-
 ## Structure
 
 ```
