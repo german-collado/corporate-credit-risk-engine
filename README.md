@@ -2,52 +2,77 @@
 
 **Estimating expected credit loss the way a bank does under CECL / IFRS 9.**
 
-A probability-of-default model on US corporate fundamentals → implied credit rating → expected credit loss (`ECL = PD × LGD × EAD`), with a macro-scenario overlay built on Federal Reserve data.
+An interactive engine that reads a US company's fundamentals and returns its
+**probability of default → credit rating → expected credit loss ($)**, with a
+**macro-scenario overlay** that stresses the book for a recession — the
+forward-looking piece that CECL and IFRS 9 require.
 
-> ⚠️ Work in progress. This README grows as each stage lands.
+Built as the credit-risk companion to the [Fed Dual Mandate Dashboard](https://github.com/german-collado/fed-dual-mandate-dashboard): that project is the macro engine, this one is the credit model that sits on top of it.
 
 ---
 
-## Why this project
+## What it does
 
-Credit-loss forecasting is the core of a bank's risk function. This engine reproduces that workflow end to end on public data:
+Pick a company, a loan amount and an economic scenario, and the app returns its
+rating, PD and expected loss live. Switching from a normal outlook to a
+2008-style recession raises every PD, downgrades ratings, and grows the expected
+loss on the book — exactly the provision swing a bank has to book.
 
-1. **PD** — a model that reads a company's financial ratios and estimates its probability of default over a 2-year horizon.
-2. **Rating** — the PD is mapped to an agency-style letter grade (AAA … D).
-3. **ECL** — `PD × LGD × EAD` turns that into an expected dollar loss.
-4. **Macro overlay** — a recession scenario shifts the PDs using the relationship between macro conditions and defaults (extends the [Fed Dual Mandate Dashboard](https://github.com/german-collado/fed-dual-mandate-dashboard)).
+```bash
+pip install -r requirements.txt
+python app.py          # interactive dashboard at http://localhost:8050
+```
 
-## Data
+*(Run `python src/model.py` first if `models/pd_model.joblib` is not present.)*
 
-[American Companies Bankruptcy dataset](https://github.com/sowide/bankruptcy_dataset) — 8,971 US public companies (NYSE / NASDAQ), 1999–2018, with real Chapter 11 / Chapter 7 outcomes. 609 companies failed.
+---
 
-The raw columns arrive anonymized (`X1…X18`); their meaning was **recovered and verified against accounting identities** (e.g. `EBITDA = EBIT + D&A` holds in 100% of rows) before any modeling — see [`src/features.py`](src/features.py).
+## The pipeline
 
-**Target (credit-clean framing):** a firm-year is labeled *default* if the company later failed and the year falls within its last 2 years of data — i.e. the financials shortly before the filing. Doomed companies' earlier healthy years are dropped, so the model never learns from mislabeled data.
+```
+fundamentals ──► PD model ──► letter rating ──► ECL = PD × LGD × EAD ──► macro overlay
+   (ratios)      (logistic)     (AAA…D)          (expected loss $)      (recession dial)
+```
 
-## Approach
+| Stage | What happens |
+|---|---|
+| **Data** | 8,971 US public companies (NYSE/NASDAQ), 1999–2018, with real Chapter 11 / 7 outcomes |
+| **Features** | Leverage, liquidity, profitability & activity ratios — incl. the five Altman Z-score inputs — engineered from raw fundamentals |
+| **PD model** | Interpretable logistic regression, validated **out-of-time** |
+| **Rating** | PD mapped to an agency-style letter grade |
+| **ECL** | `PD × LGD × EAD` → expected loss in dollars (LGD 45%, documented) |
+| **Macro overlay** | Scenario multiplier (baseline / adverse / severe) shifts PDs for a downturn |
 
-- **Features:** leverage, liquidity, profitability and activity ratios — including the five Altman Z-score inputs — engineered from the raw fundamentals.
-- **Validation:** out-of-time (train 1999–2011 · validate 2012–2014 · test 2015–2018), because a credit model must work on the future, not a random shuffle of the past.
-- **Metrics:** Gini / AUC and calibration, not accuracy — defaults are a ~1.6% rare event.
-- **Interpretability first:** in regulated credit you must justify every decision.
+## Results
+
+- **Discrimination:** AUC ≈ **0.80** on the 2015–2018 hold-out (out-of-time, not a random split).
+- **Calibration:** when the model says 5%, ≈ 6% actually default — the PDs are believable, which is what ECL needs.
+- **Stress:** on a 500-loan, $500M book, expected loss runs **~$4.8M in a normal year and ~$12M in a severe recession** (2.5×).
+
+## What makes it defensible (not a Kaggle notebook)
+
+- **Verified data dictionary.** The raw columns arrive anonymized (`X1…X18`); their meaning was recovered and **confirmed against accounting identities** (`EBITDA = EBIT + D&A` holds in 100% of rows) before any modeling.
+- **Honest target.** A firm-year is labeled *default* only in the last 2 years before the filing — the financials shortly before failure — so the model never trains on a doomed company's healthy years.
+- **Out-of-time validation.** Train on 1999–2011, test on 2015–2018, because a credit model must work on the future.
+- **Interpretability first.** Logistic regression with multicollinearity removed via **VIF**, so every coefficient carries an economically sensible sign — you can justify each one to a regulator.
+- **Right metrics.** AUC and calibration, never accuracy — defaults are a ~1.6% rare event.
 
 ## Structure
 
 ```
 data/raw/     raw dataset
-src/          feature engineering, model, scoring
-notebooks/    exploration
-models/        trained artifacts
-reports/       figures & metrics
+src/features.py   verified column map, credit ratios, default label
+src/model.py      train + validate the PD model
+src/scoring.py    PD → rating → ECL
+src/macro.py      CECL / IFRS 9 macro-scenario overlay
+app.py            interactive Dash dashboard
 ```
 
-## Setup
+## Honest limitations
 
-```bash
-pip install -r requirements.txt
-python src/features.py   # builds the modeling dataset
-```
+- The rating tail (CCC and below) is thin, so those bands are noisy.
+- The macro multipliers are anchored in published default-rate cyclicality, not fit on the sample — the in-sample year-over-year rate is distorted by right-censoring and can't be used.
+- Training companies are anonymized; live scoring of named firms (via SEC EDGAR) is the natural next step.
 
 ---
 
