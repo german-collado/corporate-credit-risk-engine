@@ -13,10 +13,15 @@ Built as the credit-risk companion to the [Fed Dual Mandate Dashboard](https://g
 
 ## What it does
 
-Pick a company, a loan amount and an economic scenario, and the app returns its
-rating, PD and expected loss live. Switching from a normal outlook to a
-2008-style recession raises every PD, downgrades ratings, and grows the expected
-loss on the book — exactly the provision swing a bank has to book.
+**Type a real US ticker** (AAPL, F, XRX…). The app pulls that company's latest
+annual financials from **SEC EDGAR** and its live share price from **Yahoo
+Finance**, runs them through the model, and returns its rating, PD and expected
+credit loss — plus where it sits versus the 1999–2018 historical population.
+Switching the outlook from normal to a 2008-style recession raises the PD,
+downgrades the rating, and grows the expected loss.
+
+Example: Apple scores **A** (safer than ~86% of the population); Xerox under a
+severe recession scores **B** (safer than ~4%).
 
 ```bash
 pip install -r requirements.txt
@@ -24,6 +29,9 @@ python app.py          # interactive dashboard at http://localhost:8050
 ```
 
 *(Run `python src/model.py` first if `models/pd_model.joblib` is not present.)*
+
+The model is **trained on 20 years of history** but **scores live companies** —
+the same split between model development and deployment a bank uses.
 
 ---
 
@@ -65,6 +73,7 @@ src/features.py   verified column map, credit ratios, default label
 src/model.py      train + validate the PD model
 src/scoring.py    PD → rating → ECL
 src/macro.py      CECL / IFRS 9 macro-scenario overlay
+src/edgar.py      live financials (SEC EDGAR) + price (Yahoo) for any real ticker
 app.py            interactive Dash dashboard
 ```
 
@@ -72,7 +81,8 @@ app.py            interactive Dash dashboard
 
 - The rating tail (CCC and below) is thin, so those bands are noisy.
 - The macro multipliers are anchored in published default-rate cyclicality, not fit on the sample — the in-sample year-over-year rate is distorted by right-censoring and can't be used.
-- Training companies are anonymized; live scoring of named firms (via SEC EDGAR) is the natural next step.
+- **Market value matters a lot.** A statements-only version of the model rated Apple sub-investment-grade (levered and illiquid on paper); adding equity market value — the Merton-style equity cushion — fixed it. Live scoring therefore needs a price feed.
+- Live scoring depends on companies tagging XBRL consistently; a few report line items under non-standard tags.
 
 ---
 

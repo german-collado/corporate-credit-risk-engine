@@ -55,6 +55,8 @@ def main():
     # --- 1. Build the modeling table (ratios + default label) ---
     data = F.build_dataset()
     all_feats = [c for c in data.columns if c not in ("company_name", "year", "default")]
+    # Full model: market value is available at scoring time (price x shares from
+    # Stooq + EDGAR), so we keep the market-based ratio — it's the strongest signal.
 
     # --- 2. Out-of-time split: learn on old years, test on new ones ---
     tr = data[data.year <= 2011]

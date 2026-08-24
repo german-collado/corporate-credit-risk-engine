@@ -61,6 +61,10 @@ COLUMN_MAP = {
 
 HORIZON = 2  # years before failure that count as "about to default"
 
+# Ratios that need a market price (not in financial statements / SEC EDGAR).
+# The statements-only model excludes these so it can score any real 10-K.
+MARKET_VALUE_FEATURES = ["mve_to_liab"]
+
 
 def _safe_div(numer, denom):
     """Divide, returning NaN where the denominator is 0 (avoids inf)."""
