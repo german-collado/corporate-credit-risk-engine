@@ -16,8 +16,9 @@ import features as F
 HEADERS = {"User-Agent": "German Collado credit-risk-engine german.collado.blanco@gmail.com"}
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
-# Free, no-API-key price quote so the repo runs out of the box.
+# Free, no-API-key price quotes so the repo runs out of the box.
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+YAHOO_HIST_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=10y&interval=1mo"
 BROWSER_UA = {"User-Agent": "Mozilla/5.0"}
 
 # Map each column the model needs to the us-gaap tags EDGAR might report it under
@@ -65,8 +66,8 @@ def resolve(ticker: str):
 
 
 def _concept_by_year(facts, tags, duration):
-    """Return {fiscal_year: value} for annual 10-K figures, merged across
-    candidate tags (for each year, the entry with the latest reporting date)."""
+    """Return {fiscal_year: (end_date, value)} for annual 10-K figures, merged
+    across candidate tags (per year, the entry with the latest reporting date)."""
     gaap = facts.get("facts", {}).get("us-gaap", {})
     by_year = {}  # fy -> (end_date, value)
     for tag in tags:
@@ -86,7 +87,42 @@ def _concept_by_year(facts, tags, duration):
                 continue
             if fy not in by_year or r["end"] > by_year[fy][0]:
                 by_year[fy] = (r["end"], r["val"])
-    return {fy: v for fy, (_, v) in by_year.items()}
+    return by_year
+
+
+def get_price_history(ticker):
+    """Monthly closing prices for the last 10 years: list of (date, close)."""
+    try:
+        j = requests.get(YAHOO_HIST_URL.format(ticker=ticker.upper()), headers=BROWSER_UA, timeout=25).json()
+        r = j["chart"]["result"][0]
+        ts, closes = r["timestamp"], r["indicators"]["quote"][0]["close"]
+        return [(pd.Timestamp(t, unit="s"), c) for t, c in zip(ts, closes) if c is not None]
+    except (KeyError, TypeError, ValueError, requests.RequestException):
+        return []
+
+
+def _price_at(history, date):
+    """Closing price nearest a given date (NaN if no history)."""
+    if not history:
+        return np.nan
+    d = pd.Timestamp(date)
+    return min(history, key=lambda p: abs((p[0] - d).days))[1]
+
+
+def _shares_by_year(facts):
+    """{fiscal_year: shares outstanding} from the annual 10-K filings."""
+    gaap = facts.get("facts", {}).get("us-gaap", {})
+    out = {}
+    for tag in ("CommonStockSharesOutstanding", "CommonStockSharesIssued"):
+        for r in gaap.get(tag, {}).get("units", {}).get("shares", []):
+            if r.get("form") not in ("10-K", "10-K/A") or r.get("fp") != "FY":
+                continue
+            fy = r.get("fy")
+            if fy is not None and (fy not in out or r["end"] > out[fy][0]):
+                out[fy] = (r["end"], r["val"])
+        if out:
+            break
+    return {fy: v for fy, (_, v) in out.items()}
 
 
 def get_price(ticker: str) -> float:
@@ -113,35 +149,57 @@ def fetch_financials(ticker: str) -> pd.DataFrame:
     cik, name = resolve(ticker)
     facts = requests.get(FACTS_URL.format(cik=cik), headers=HEADERS, timeout=30).json()
 
-    # Build a {year: value} series for every concept first.
+    # {year: (end, value)} series for every concept.
     series = {col: _concept_by_year(facts, tags, dur) for col, (tags, dur) in CONCEPTS.items()}
-
-    # Anchor on the latest year where Total Assets is reported (the newest 10-K).
-    target_fy = max(series["total_assets"])
-
-    def at_target(col):
-        s = series[col]
-        if target_fy in s:
-            return s[target_fy]
-        past = [fy for fy in s if fy <= target_fy]     # fall back to nearest prior year
-        return s[max(past)] if past else np.nan
-
-    row = {col: np.nan for col in F.COLUMN_MAP.values()}
-    for col in CONCEPTS:
-        row[col] = at_target(col)
-
-    # Derived: EBITDA = EBIT + D&A (the identity we verified on the training data)
-    if not np.isnan(row["ebit"]) and not np.isnan(row["depreciation_amortization"]):
-        row["ebitda"] = row["ebit"] + row["depreciation_amortization"]
-    row["total_revenue"] = row["net_sales"]
-
-    # Market value = last price x shares outstanding (the Merton-style equity cushion)
+    target_fy = max(series["total_assets"])            # newest 10-K
+    row = _row_for_year(series, target_fy, F.COLUMN_MAP.values())
     row["market_value"] = get_price(ticker) * _shares_outstanding(facts)
 
     df = pd.DataFrame([row])
     df.insert(0, "company_name", f"{name} ({ticker.upper()})")
     df.insert(1, "year", int(target_fy))
     return df
+
+
+def _row_for_year(series, fy, all_cols):
+    """One company-year row: each concept at `fy`, falling back to the nearest
+    prior year, then EBITDA = EBIT + D&A."""
+    row = {c: np.nan for c in all_cols}
+    for col in CONCEPTS:
+        s = series[col]
+        if fy in s:
+            row[col] = s[fy][1]
+        else:
+            past = [y for y in s if y <= fy]
+            row[col] = s[max(past)][1] if past else np.nan
+    if not np.isnan(row["ebit"]) and not np.isnan(row["depreciation_amortization"]):
+        row["ebitda"] = row["ebit"] + row["depreciation_amortization"]
+    row["total_revenue"] = row["net_sales"]
+    return row
+
+
+def fetch_history(ticker: str, n_years: int = 8) -> pd.DataFrame:
+    """One row per fiscal year (last `n_years`), with market value from the
+    historical share price near each fiscal year-end. Powers the PD trend."""
+    cik, name = resolve(ticker)
+    facts = requests.get(FACTS_URL.format(cik=cik), headers=HEADERS, timeout=30).json()
+
+    series = {col: _concept_by_year(facts, tags, dur) for col, (tags, dur) in CONCEPTS.items()}
+    years = sorted(series["total_assets"])[-n_years:]
+    prices = get_price_history(ticker)
+    shares_by_year = _shares_by_year(facts)
+    cur_shares = _shares_outstanding(facts)
+
+    rows = []
+    for fy in years:
+        row = _row_for_year(series, fy, F.COLUMN_MAP.values())
+        fy_end = series["total_assets"][fy][0]          # match price to fiscal year-end
+        px = _price_at(prices, fy_end)
+        sh = shares_by_year.get(fy, cur_shares)
+        row["market_value"] = px * sh if (px == px and sh == sh) else np.nan
+        rows.append({"company_name": f"{name} ({ticker.upper()})", "year": int(fy), **row})
+
+    return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ import dash_bootstrap_components as dbc
 import features as F
 from scoring import score, pd_to_rating, LGD
 from macro import SCENARIOS, apply_overlay
-from edgar import fetch_financials
+from edgar import fetch_history
 
 # --- Score the historical population once (for the percentile) ---
 _raw = pd.read_csv("data/raw/american_bankruptcy.csv").rename(columns=F.COLUMN_MAP)
@@ -165,6 +165,8 @@ app.layout = dbc.Container([
                 dbc.Col([html.Div("KEY FINANCIAL INDICATORS", style=LABEL),
                          html.Div(id="bullets", className="mt-2")], md=7),
             ], className="mt-1"),
+            html.Div("PROBABILITY OF DEFAULT OVER TIME", style=LABEL, className="mt-3"),
+            dcc.Loading(dcc.Graph(id="history", config={"displayModeBar": False})),
             html.Div(id="compare", className="text-center mt-2",
                      style={"color": INK, "fontSize": "1.05rem"}),
         ]), md=8),
@@ -182,14 +184,18 @@ app.layout = dbc.Container([
 @app.callback(Output("base", "data"), Input("go", "n_clicks"), Input("ticker", "value"))
 def analyze(_, ticker):
     try:
-        df = fetch_financials(ticker)
-        s = score(df).iloc[0]
-        ratios = {k: (None if pd.isna(v) else float(v)) for k, v in F.build_ratios(df).iloc[0].items()}
+        hist = fetch_history(ticker)                    # one row per fiscal year
+        scored = score(hist)
+        ratios_all = F.build_ratios(hist)
+        last, slast, rlast = hist.iloc[-1], scored.iloc[-1], ratios_all.iloc[-1]
+        ratios = {k: (None if pd.isna(v) else float(v)) for k, v in rlast.items()}
         keep = ["total_assets", "total_liabilities", "current_assets", "current_liabilities",
                 "net_income", "ebit", "market_value"]
-        raw = {k: (None if pd.isna(df[k].iloc[0]) else float(df[k].iloc[0])) for k in keep}
-        return {"ok": True, "name": s["company_name"], "year": int(df["year"].iloc[0]),
-                "base_pd": float(s["PD"]), "ratios": ratios, "raw": raw}
+        raw = {k: (None if pd.isna(last[k]) else float(last[k])) for k in keep}
+        return {"ok": True, "name": last["company_name"], "year": int(last["year"]),
+                "base_pd": float(slast["PD"]), "ratios": ratios, "raw": raw,
+                "hist_years": [int(y) for y in hist["year"]],
+                "hist_pd": [float(p) for p in scored["PD"]]}
     except Exception as e:
         return {"ok": False, "msg": f"Could not analyze '{ticker}': {e}"}
 
@@ -209,6 +215,25 @@ def dark_gauge(pd_adj, color):
     return g
 
 
+def history_fig(years, base_pds, scenario, color):
+    """Line of the company's PD over its last several fiscal years."""
+    mult = SCENARIOS[scenario]
+    y = [min(p * mult, 0.99) * 100 for p in base_pds]
+    fig = go.Figure()
+    fig.add_hrect(y0=0, y1=1, fillcolor="#132b1f", opacity=0.55, line_width=0,
+                  annotation_text="investment grade", annotation_position="top left",
+                  annotation_font_color=GREEN, annotation_font_size=11)
+    fig.add_trace(go.Scatter(x=years, y=y, mode="lines+markers",
+                             line=dict(color=color, width=3), marker=dict(size=8, color=color),
+                             fill="tozeroy", fillcolor="rgba(245,179,1,0.06)",
+                             hovertemplate="FY%{x}: %{y:.2f}%<extra></extra>"))
+    fig.update_layout(height=230, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      font_color=MUTED, margin=dict(t=14, b=24, l=36, r=14),
+                      yaxis=dict(title="PD %", gridcolor=BORDER, zeroline=False),
+                      xaxis=dict(gridcolor=BORDER, dtick=1))
+    return fig
+
+
 @app.callback(
     Output("headline", "children"), Output("subline", "children"),
     Output("kpi-rating", "children"), Output("kpi-rating", "style"), Output("kpi-rating-sub", "children"),
@@ -216,15 +241,18 @@ def dark_gauge(pd_adj, color):
     Output("kpi-ecl", "children"), Output("kpi-ecl-sub", "children"),
     Output("kpi-mc", "children"), Output("kpi-mc-sub", "children"),
     Output("verdict", "children"), Output("verdict", "style"),
-    Output("gauge", "figure"), Output("bullets", "children"), Output("compare", "children"),
+    Output("gauge", "figure"), Output("history", "figure"),
+    Output("bullets", "children"), Output("compare", "children"),
     Input("base", "data"), Input("ead", "value"), Input("scenario", "value"),
 )
 def render(base, ead, scenario):
     rstyle = {"fontSize": "2.3rem", "fontWeight": "800", "lineHeight": "1.15"}
+    empty = go.Figure(); empty.update_layout(height=230, paper_bgcolor="rgba(0,0,0,0)",
+                                             plot_bgcolor="rgba(0,0,0,0)", font_color=MUTED)
     if not base or not base.get("ok"):
         msg = (base or {}).get("msg", "Type a ticker and press Analyze.")
         return ("", msg, "—", {**rstyle, "color": MUTED}, "", "—", "", "—", "", "—", "",
-                "", {"display": "none"}, dark_gauge(0, MUTED), "", "")
+                "", {"display": "none"}, dark_gauge(0, MUTED), empty, "", "")
 
     ead = ead or 0
     pd_adj = float(apply_overlay(np.array([base["base_pd"]]), scenario)[0])
@@ -258,7 +286,8 @@ def render(base, ead, scenario):
             f"${ecl:,.0f}", f"on {money(ead)} loan · LGD 45%",
             money(mc) if mc else "n/a", "equity value · Yahoo",
             verdict_ui, vstyle,
-            dark_gauge(pd_adj, col), bullet_ui,
+            dark_gauge(pd_adj, col), history_fig(base["hist_years"], base["hist_pd"], scenario, col),
+            bullet_ui,
             f"🏦 Safer than {pct:.0f}% of US public companies (1999–2018)")
 
 
