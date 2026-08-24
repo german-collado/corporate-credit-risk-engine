@@ -31,6 +31,9 @@ POP_PD = np.sort(score(_latest)["PD"].values)
 GREEN, AMBER, RED, INK = "#16a34a", "#f59e0b", "#dc2626", "#0f172a"
 STATUS_COLOR = {"good": GREEN, "warn": AMBER, "bad": RED}
 
+# Plain-English label for each macro scenario (the ×1 / ×1.5 / ×2.5 dials)
+SCENARIO_DESC = {"baseline": "normal economy", "adverse": "mild recession", "severe": "2008-style crisis"}
+
 
 def tier_color(rating):
     if rating in {"AAA", "AA", "A", "BBB"}:
@@ -132,8 +135,14 @@ controls = dbc.Card(dbc.CardBody([
     html.H6("Economic scenario", className="text-muted"),
     dcc.RadioItems(
         id="scenario",
-        options=[{"label": f"  {k.title()} (×{v})", "value": k} for k, v in SCENARIOS.items()],
+        options=[{"label": f"  {k.title()} (×{v}) — {SCENARIO_DESC[k]}", "value": k}
+                 for k, v in SCENARIOS.items()],
         value="baseline", labelStyle={"display": "block", "padding": "3px"}),
+    html.Small(
+        "The multiplier scales every PD by how far corporate defaults rise in a downturn. "
+        "Anchored in published default studies (Moody's / S&P): the speculative-grade default "
+        "rate runs ~2% in benign years and spiked to ~10% in 2009 — roughly a 2.5× move.",
+        className="text-muted", style={"fontSize": "0.72rem", "display": "block", "marginTop": "6px"}),
 ], ), className="shadow-sm")
 
 
