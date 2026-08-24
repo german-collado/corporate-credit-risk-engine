@@ -59,25 +59,33 @@ def safer_than(pd_value):
     return 100.0 * (POP_PD > pd_value).mean()
 
 
+def _missing(v):
+    return v is None or (isinstance(v, float) and np.isnan(v))
+
+
 def indicators(ratios, raw):
-    """Each key ratio with its value, status, meaning, and the raw $ behind it."""
+    """Each key ratio with its value, status, meaning, and the raw $ behind it.
+    Robust to missing values (any ratio a company doesn't let us compute)."""
     def status(v, good, warn, higher_is_better):
-        if v is None or (isinstance(v, float) and np.isnan(v)): return "warn"
+        if _missing(v): return "warn"
         if higher_is_better: return "good" if v >= good else ("warn" if v >= warn else "bad")
         return "good" if v <= good else ("warn" if v <= warn else "bad")
 
+    def fmt(v, spec):
+        return "n/a" if _missing(v) else format(v, spec)
+
     L, R = ratios, raw
     return [
-        ("Leverage", f"{L['leverage']:.0%}", status(L['leverage'], .5, .75, False),
+        ("Leverage", fmt(L['leverage'], ".0%"), status(L['leverage'], .5, .75, False),
          "share of the company financed by debt", f"{money(R['total_liabilities'])} debt / {money(R['total_assets'])} assets"),
-        ("Liquidity", f"{L['current_ratio']:.2f}", status(L['current_ratio'], 1.5, 1.0, True),
+        ("Liquidity", fmt(L['current_ratio'], ".2f"), status(L['current_ratio'], 1.5, 1.0, True),
          "short-term assets per $1 of short-term bills", f"{money(R['current_assets'])} / {money(R['current_liabilities'])} current liab"),
-        ("Return on assets", f"{L['roa']:.1%}", status(L['roa'], .05, 0, True),
+        ("Return on assets", fmt(L['roa'], ".1%"), status(L['roa'], .05, 0, True),
          "profit per $1 of assets", f"{money(R['net_income'])} income / {money(R['total_assets'])} assets"),
-        ("Debt service", f"{L['ebit_to_liab']:.1%}", status(L['ebit_to_liab'], .15, 0, True),
+        ("Debt service", fmt(L['ebit_to_liab'], ".1%"), status(L['ebit_to_liab'], .15, 0, True),
          "operating profit vs total debt", f"{money(R['ebit'])} EBIT / {money(R['total_liabilities'])} debt"),
-        ("Market cushion", ("n/a" if np.isnan(L['mve_to_liab']) else f"{L['mve_to_liab']:.1f}x"),
-         status(None if np.isnan(L['mve_to_liab']) else L['mve_to_liab'], 3, 1, True),
+        ("Market cushion", fmt(L['mve_to_liab'], ".1f") + ("" if _missing(L['mve_to_liab']) else "x"),
+         status(L['mve_to_liab'], 3, 1, True),
          "equity buffer the market assigns vs debt", f"{money(R['market_value'])} market value / {money(R['total_liabilities'])} debt"),
     ]
 

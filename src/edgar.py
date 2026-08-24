@@ -28,6 +28,8 @@ CONCEPTS = {
     "total_assets":        (["Assets"], False),
     "current_assets":      (["AssetsCurrent"], False),
     "total_liabilities":   (["Liabilities"], False),
+    "stockholders_equity": (["StockholdersEquity",
+                             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"], False),
     "current_liabilities": (["LiabilitiesCurrent"], False),
     "long_term_debt":      (["LongTermDebtNoncurrent", "LongTermDebt"], False),
     "inventory":           (["InventoryNet"], False),
@@ -172,6 +174,11 @@ def _row_for_year(series, fy, all_cols):
         else:
             past = [y for y in s if y <= fy]
             row[col] = s[max(past)][1] if past else np.nan
+    # Many companies don't tag a "Liabilities" total — derive it from the identity
+    # Total liabilities = Total assets − Stockholders' equity.
+    se = row.pop("stockholders_equity", np.nan)
+    if np.isnan(row["total_liabilities"]) and not np.isnan(row["total_assets"]) and not np.isnan(se):
+        row["total_liabilities"] = row["total_assets"] - se
     if not np.isnan(row["ebit"]) and not np.isnan(row["depreciation_amortization"]):
         row["ebitda"] = row["ebit"] + row["depreciation_amortization"]
     row["total_revenue"] = row["net_sales"]
