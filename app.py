@@ -97,6 +97,19 @@ def verdict(rating, pd_adj, bullets):
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY], title="Credit Risk Engine")
 server = app.server
 
+# Soft tinted page background so the white cards pop (plain white looked default).
+app.index_string = """<!DOCTYPE html>
+<html>
+  <head>{%metas%}<title>{%title%}</title>{%favicon%}{%css%}
+    <style>
+      body { background: linear-gradient(160deg,#eaf0fb 0%, #eef1f7 45%, #f3ecf8 100%);
+             background-attachment: fixed; }
+      .card { border: none !important; }
+    </style>
+  </head>
+  <body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>
+</html>"""
+
 hero = html.Div([
     html.H2("Corporate Credit Risk Engine", className="fw-bold mb-1", style={"color": "white"}),
     html.P("Type any US ticker and get a bank-style credit verdict — default probability, rating "
