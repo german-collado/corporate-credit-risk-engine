@@ -169,6 +169,12 @@ app.layout = dbc.Container([
                      style={"color": INK, "fontSize": "1.05rem"}),
         ]), md=8),
     ], className="mt-2"),
+    html.Hr(style={"borderColor": BORDER, "marginTop": "22px"}),
+    html.Div([
+        "Rating is an internal implied grade mapped from the model's PD (not an agency rating).  ·  ",
+        "Expected loss assumes a 45% loss-given-default — the Basel standard for senior unsecured "
+        "corporate debt — and the loan amount as exposure. Both are estimates, not modeled.",
+    ], style={**SUB, "textAlign": "center", "padding": "0 0 18px"}),
     dcc.Store(id="base"),
 ], fluid=True, style={"maxWidth": "1200px"})
 
