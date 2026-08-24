@@ -9,6 +9,8 @@ forward-looking piece that CECL and IFRS 9 require.
 
 Built as the credit-risk companion to the [Fed Dual Mandate Dashboard](https://github.com/german-collado/fed-dual-mandate-dashboard): that project is the macro engine, this one is the credit model that sits on top of it.
 
+![Apple scored by the engine — investment grade, with its default risk falling over the last several years](docs/screenshot-apple.png)
+
 ---
 
 ## What it does
@@ -32,6 +34,16 @@ python app.py          # interactive dashboard at http://localhost:8050
 
 The model is **trained on 20 years of history** but **scores live companies** —
 the same split between model development and deployment a bank uses.
+
+## In action
+
+**Brinker International (EAT)** — Chili's parent, speculative grade: profitable, but highly levered and tight on liquidity.
+
+![Brinker International scored as speculative grade (BB)](docs/screenshot-chilis.png)
+
+**Delta Air Lines (DAL)** under a **severe-recession** scenario — the dial pushes the PD up and the rating to B, and its 2020 COVID spike shows in the default-risk history.
+
+![Delta Air Lines stressed under a severe recession scenario](docs/screenshot-delta.png)
 
 ---
 
